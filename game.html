@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>escape</title>
+    <style>
+    	@font-face {
+	    font-family: 'Pretendard';
+	    src: url('https://cdn.jsdelivr.net/gh/Project-Noonnu/noonfonts_2107@1.1/Pretendard-SemiBold.woff') format('woff');
+	    font-weight: 600;
+	    font-display: swap;
+	}
+        body {
+            font-family: pretendard, sans-serif;
+            text-align: center;
+            background-color: #f0f0f0;
+        }
+
+    
+        #game-wrapper {
+            display: flex;
+            justify-content: center;
+            gap: 30px; 
+            margin: 20px auto;
+            width: fit-content; 
+        }
+
+        #game-container {
+            border: 3px solid #333;
+            display: inline-block; 
+        }
+
+        #mazeCanvas {
+            background-color: #fff;
+            display: block;
+        }
+
+        
+        #ranking-area {
+            width: 250px; 
+            text-align: left;
+            padding: 15px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+        }
+
+        h1 { margin-top: 40px;
+       		margin-bottom: 40px;
+       
+        }
+
+        #ranking-area h2 {
+            margin-top: 0;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+
+       
+        #ranking-area button {
+            display: block;
+            width: 100%;
+            padding: 8px;
+            margin-top: 10px;
+            background-color: #FF5E49;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #ranking-area button:hover {
+            background-color: #FF4830;
+        }
+    </style>
+</head>
+<body>
+    <h1>이 형태를 이용해서 탈출 게임으로 발전시킬 예정...</h1>
+    
+    <div id="game-wrapper">
+        
+        <div>
+            <div id="game-container">
+                <canvas id="mazeCanvas" width="1000" height="750"></canvas>
+                <div id="status"></div>
+            </div>
+            <div id="timer">경과 시간: 0.00초</div> 
+        </div>
+
+        <div id="ranking-area">
+            <div id="ranking-list">
+                </div>
+            <button onclick="clearRanking()">랭킹 초기화</button>
+        </div>
+    </div>
+    
+   <script>
+	    const canvas = document.getElementById('mazeCanvas');
+	    const ctx = canvas.getContext('2d');
+	    const TILE_SIZE = 50; 
+	    
+	    const statusDiv = document.getElementById('status');
+	    let gameActive = true;
+	    let chaserInterval; 
+
+	  
+	    const ROWS = 15;
+	    const COLS = 20;
+	    let maze = []; 
+	    
+	   
+	    let startTime = Date.now();
+	    let timerInterval; 
+
+	   
+	    let player = { x: 0, y: 0 }; 
+	    let chaser = { x: 0, y: 0 }; 
+
+	    let hasKey = false; 
+
+	    
+	    function createMaze() {
+	        maze = Array(ROWS).fill(0).map(() => Array(COLS).fill(1));
+
+	        
+	        let visited = Array(ROWS).fill(0).map(() => Array(COLS).fill(false));
+	        let stack = [];
+
+	        let startX = 1;
+	        let startY = 1;
+
+	        maze[startY][startX] = 0;
+	        visited[startY][startX] = true;
+	        stack.push({ x: startX, y: startY });
+
+	        while (stack.length > 0) {
+	            let current = stack[stack.length - 1];
+	            let { x, y } = current;
+
+	            let neighbors = [];
+	            const directions = [
+	                { dx: 0, dy: -2, wallX: 0, wallY: -1 }, 
+	                { dx: 0, dy: 2, wallX: 0, wallY: 1 },  
+	                { dx: -2, dy: 0, wallX: -1, wallY: 0 }, 
+	                { dx: 2, dy: 0, wallX: 1, wallY: 0 }   
+	            ];
+
+	            for (const dir of directions) {
+	                let nextX = x + dir.dx;
+	                let nextY = y + dir.dy;
+
+	                if (nextX > 0 && nextX < COLS - 1 && nextY > 0 && nextY < ROWS - 1 && !visited[nextY][nextX]) {
+	                    neighbors.push({ ...dir, nextX, nextY });
+	                }
+	            }
+
+	            if (neighbors.length > 0) {
+	                const randIndex = Math.floor(Math.random() * neighbors.length);
+	                const neighbor = neighbors[randIndex];
+
+	                maze[neighbor.wallY + y][neighbor.wallX + x] = 0; 
+	                maze[neighbor.nextY][neighbor.nextX] = 0;          
+	                
+	                visited[neighbor.nextY][neighbor.nextX] = true;
+	                stack.push({ x: neighbor.nextX, y: neighbor.nextY });
+	            } else {
+	                stack.pop();
+	            }
+	        }
+
+	        
+	        const WALL_REMOVAL_CHANCE = 0.15; 
+
+	        for (let y = 1; y < ROWS - 1; y++) {
+	            for (let x = 1; x < COLS - 1; x++) {
+	                if (maze[y][x] === 1 && Math.random() < WALL_REMOVAL_CHANCE) {
+	                    let pathCount = 0;
+	                    if (maze[y - 1][x] === 0) pathCount++;
+	                    if (maze[y + 1][x] === 0) pathCount++;
+	                    if (maze[y][x - 1] === 0) pathCount++;
+	                    if (maze[y][x + 1] === 0) pathCount++;
+
+	                    if (pathCount <= 2) {
+	                        maze[y][x] = 0;
+	                    }
+	                }
+	            }
+	        }
+
+	       
+	        let keyPlaced = false;
+	        while (!keyPlaced) {
+	            let keyX = Math.floor(Math.random() * (COLS - 2)) + 1;
+	            let keyY = Math.floor(Math.random() * (ROWS - 2)) + 1;
+
+	            if (maze[keyY][keyX] === 0 && 
+	                !(keyX === 1 && keyY === 1) && 
+	                !(keyX === COLS - 2 && keyY === ROWS - 2)) {
+	                
+	                maze[keyY][keyX] = 4; 
+	                keyPlaced = true;
+	            }
+	        }
+	        
+	        
+	        player.x = 1;
+	        player.y = 1;
+	        maze[1][1] = 2;
+
+	        chaser.x = COLS - 2;
+	        chaser.y = ROWS - 2;
+
+	        maze[ROWS - 2][COLS - 2] = 3; 
+	        
+	        hasKey = false;
+	    }
+
+	   
+	    function drawMaze() {
+	        for (let y = 0; y < maze.length; y++) {
+	            for (let x = 0; x < maze[y].length; x++) {
+	                const val = maze[y][x];
+	                
+	                ctx.fillStyle = val === 1 ? '#444' : 
+	                                 val === 2 ? '#90EE90' : 
+	                                 val === 3 ? '#ADD8E6' : 
+	                                 '#eee'; 
+	                ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+	                
+	                if (val === 4) {
+	                    ctx.fillStyle = 'yellow'; 
+	                    const keySize = TILE_SIZE / 3;
+	                    ctx.fillRect(x * TILE_SIZE + TILE_SIZE/2 - keySize/2, 
+	                                 y * TILE_SIZE + TILE_SIZE/2 - keySize/2, 
+	                                 keySize, keySize);
+	                }
+	            }
+	        }
+	    }
+
+	    function drawCharacters() {
+	        ctx.fillStyle = 'red';
+	        ctx.beginPath();
+	        ctx.arc(player.x * TILE_SIZE + TILE_SIZE / 2, 
+	                player.y * TILE_SIZE + TILE_SIZE / 2, 
+	                TILE_SIZE / 3, 0, Math.PI * 2);
+	        ctx.fill();
+
+	        ctx.fillStyle = 'black';
+	        ctx.beginPath();
+	        ctx.arc(chaser.x * TILE_SIZE + TILE_SIZE / 2, 
+	                chaser.y * TILE_SIZE + TILE_SIZE / 2, 
+	                TILE_SIZE / 3, 0, Math.PI * 2);
+	        ctx.fill();
+	    }
+
+
+	    function updateTimer() {
+	        const elapsedTime = (Date.now() - startTime) / 1000;
+	        document.getElementById('timer').textContent = `경과 시간: ${elapsedTime.toFixed(2)}초`;
+	    }
+
+	    function saveScore(name, time) {
+	        const scoresJSON = localStorage.getItem('mazeScores');
+	        let scores = scoresJSON ? JSON.parse(scoresJSON) : [];
+	        
+	        const newScore = { name: name, time: time.toFixed(2), date: new Date().toLocaleString() };
+	        scores.push(newScore);
+	        
+	        localStorage.setItem('mazeScores', JSON.stringify(scores));
+	        
+	        loadRanking(); 
+	    }
+
+	     function loadRanking() {
+	        const rankingDiv = document.getElementById('ranking-list');
+	        
+	        const scoresJSON = localStorage.getItem('mazeScores');
+	        let scores = scoresJSON ? JSON.parse(scoresJSON) : [];
+
+	        rankingDiv.innerHTML = '<h2>탈출 기록 순위</h2>';
+
+	        if (scores.length === 0) {
+	            rankingDiv.innerHTML += '<p> 아직 기록이 없습니다.</p>';
+	            return;
+	        }
+	        
+	        scores.sort((a, b) => parseFloat(a.time) - parseFloat(b.time));
+
+	        let listHTML = '<ol>';
+	        scores.slice(0, 10).forEach((score) => { 
+	            listHTML += `<li>${score.name} - ${score.time}초</li>`;
+	        });
+	        listHTML += '</ol>';
+	        rankingDiv.innerHTML += listHTML;
+	    }
+
+	  
+	    function clearRanking() {
+	        if (confirm("정말 랭킹 기록을 모두 삭제하시겠습니까?")) {
+	            localStorage.removeItem('mazeScores');
+	            loadRanking();
+	            alert("랭킹 기록이 초기화되었습니다.");
+	        }
+	    }
+
+	   
+	    function checkGameStatus() {
+	        if (!gameActive) return;
+
+	       
+	        if (maze[player.y][player.x] === 3) {
+		        if (hasKey) {
+		            gameActive = false;
+		            clearInterval(chaserInterval);
+		            clearInterval(timerInterval); 
+		            
+		            const clearTime = (Date.now() - startTime) / 1000;
+		            statusDiv.textContent = `🎉 열쇠로 방탈출 성공! 클리어 시간: ${clearTime.toFixed(2)}초!`;
+		            
+		            setTimeout(() => {
+		                const playerName = prompt("이름을 입력하세요 (랭킹 등록):") || "Unknown";
+		                saveScore(playerName, clearTime); 
+		            }, 50); 
+
+		        } else {
+		            statusDiv.textContent = '🔒 문이 잠겨있습니다! 먼저 열쇠를 찾아야 합니다.';
+		        }
+		        return; 
+		    }
+	        
+	        
+	        if (maze[player.y][player.x] === 4) {
+	          
+	        }
+
+
+	       
+	        if (player.x === chaser.x && player.y === chaser.y) {
+	            statusDiv.textContent = '👻 술래에게 잡혔습니다! 게임 오버.';
+	            gameActive = false;
+	            clearInterval(chaserInterval);
+	            clearInterval(timerInterval); 
+	        }
+	    }
+
+	    function gameLoop() {
+	        ctx.clearRect(0, 0, canvas.width, canvas.height);
+	        drawMaze();
+	        drawCharacters();
+	        checkGameStatus();
+	    }
+	    
+	   
+	    document.addEventListener('keydown', (e) => {
+	        if (!gameActive) return;
+
+	        let newX = player.x;
+	        let newY = player.y;
+
+	        switch (e.key) {
+	            case 'ArrowUp': newY--; break;
+	            case 'ArrowDown': newY++; break;
+	            case 'ArrowLeft': newX--; break;
+	            case 'ArrowRight': newX++; break;
+	            default: return;
+	        }
+
+	        
+	        if (maze[newY] && maze[newY][newX] !== 1) {
+	            player.x = newX;
+	            player.y = newY;
+	            
+	            
+	            if (maze[player.y][player.x] === 4) {
+	                hasKey = true; 
+	                maze[player.y][player.x] = 0; 
+	                statusDiv.textContent = '🔑 열쇠를 획득했습니다! 이제 출구로 가세요!';
+	            }
+	            
+	            gameLoop(); 
+	        }
+	    });
+
+	    
+
+	    function Node(x, y, g, h, parent) {
+	        this.x = x; this.y = y; this.g = g; this.h = h; this.f = g + h; this.parent = parent; 
+	    }
+
+	    function heuristic(x1, y1, x2, y2) {
+	        return Math.abs(x1 - x2) + Math.abs(y1 - y2);
+	    }
+
+	    function findPath(start, goal) {
+	        let openList = [];
+	        let closedList = [];
+
+	        let startNode = new Node(start.x, start.y, 0, heuristic(start.x, start.y, goal.x, goal.y), null);
+	        openList.push(startNode);
+
+	        while (openList.length > 0) {
+	            openList.sort((a, b) => a.f - b.f);
+	            let current = openList.shift();
+	            closedList.push(current);
+
+	            if (current.x === goal.x && current.y === goal.y) {
+	                let path = [];
+	                let temp = current;
+	                while (temp) { path.push({ x: temp.x, y: temp.y }); temp = temp.parent; }
+	                return path.reverse().slice(1); 
+	            }
+
+	            const directions = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+	            
+	            for (const [dx, dy] of directions) {
+	                let nextX = current.x + dx;
+	                let nextY = current.y + dy;
+
+	                if (nextX < 0 || nextX >= COLS || nextY < 0 || nextY >= ROWS || maze[nextY][nextX] === 1) { continue; }
+	                if (closedList.some(node => node.x === nextX && node.y === nextY)) { continue; }
+
+	                let newG = current.g + 1;
+	                let newNode = new Node(nextX, nextY, newG, heuristic(nextX, nextY, goal.x, goal.y), current);
+
+	                let existingNode = openList.find(node => node.x === nextX && node.y === nextY);
+	                if (existingNode && newG >= existingNode.g) { continue; }
+
+	                openList.push(newNode);
+	            }
+	        }
+	        return []; 
+	    }
+
+	    function moveChaser() {
+	        if (!gameActive) return;
+
+	        const path = findPath(chaser, player); 
+	        
+	        if (path.length > 0) {
+	            const nextStep = path[0];
+	            chaser.x = nextStep.x;
+	            chaser.y = nextStep.y;
+	        }
+
+	        gameLoop();
+	    }
+
+	   
+	    createMaze(); 
+	    startTime = Date.now(); 
+
+	    gameLoop();
+	    timerInterval = setInterval(updateTimer, 100); 
+	    chaserInterval = setInterval(moveChaser, 700); 
+	</script>
+</body>
+</html>
